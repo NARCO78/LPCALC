@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>LP Calculator</title>
+
+  <style>
+    /* CSS Variables for Dark and Light Modes */
+    :root {
+      --bg-color: #000;
+      --text-color: #fff;
+      --container-bg: #111;
+      --border-color: #444;
+      --input-bg: #222;
+      --readonly-bg: #333;
+      --shadow-color: rgba(255, 255, 255, 0.2);
+    }
+
+    .light-mode {
+      --bg-color: #fff;
+      --text-color: #000;
+      --container-bg: #eee;
+      --border-color: #ccc;
+      --input-bg: #fff;
+      --readonly-bg: #f3f3f3;
+      --shadow-color: rgba(0, 0, 0, 0.2);
+    }
+
+    /* Base Styling */
+    body {
+      background-color: var(--bg-color);
+      color: var(--text-color);
+      font-family: Arial, sans-serif;
+      text-align: center;
+      margin: 40px;
+      transition: background-color 0.3s, color 0.3s;
+    }
+
+    @media (max-width: 600px) {
+      body {
+        margin: 20px; /* Reduced margin for mobile */
+      }
+    }
+
+    .container {
+      position: relative;
+      background: var(--container-bg);
+      padding: 20px;
+      border-radius: 10px;
+      box-shadow: 0 0 10px var(--shadow-color);
+      width: 90%; /* Responsive width */
+      max-width: 600px; /* Caps width on larger screens */
+      margin: auto;
+      transition: background 0.3s, box-shadow 0.3s;
+    }
+
+    .theme-toggle-icon {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      width: 40px; /* Larger tap target */
+      height: 40px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .theme-toggle-icon span {
+      font-size: 24px;
+    }
+
+    h2 {
+      margin-bottom: 20px;
+      font-size: 24px;
+    }
+
+    @media (max-width: 600px) {
+      h2 {
+        font-size: 20px; /* Smaller title on mobile */
+      }
+    }
+
+    .flexRow {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 15px;
+      flex-wrap: wrap;
+    }
+
+    @media (max-width: 600px) {
+      .flexRow {
+        flex-direction: column; /* Stack items vertically on mobile */
+      }
+      .flexRow:not(:last-child) {
+        border-bottom: 1px solid var(--border-color); /* Divider between sections */
+        padding-bottom: 15px;
+        margin-bottom: 15px;
+      }
+    }
+
+    .flexItem {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      width: 32%; /* 3-column layout on desktop */
+      margin-bottom: 10px;
+    }
+
+    @media (max-width: 600px) {
+      .flexItem {
+        width: 100%; /* Full width on mobile */
+        margin-bottom: 15px;
+      }
+    }
+
+    .fullWidth {
+      width: 100%;
+    }
+
+    label {
+      margin-bottom: 5px;
+      font-weight: bold;
+      text-align: left;
+      font-size: 16px; /* Larger font for readability */
+    }
+
+    input {
+      width: 100%;
+      padding: 12px; /* Increased padding for touch-friendliness */
+      border: 1px solid var(--border-color);
+      border-radius: 5px;
+      background: var(--input-bg);
+      color: var(--text-color);
+      text-align: center;
+      font-size: 18px; /* Larger font for mobile */
+      transition: background 0.3s, color 0.3s, border-color 0.3s;
+    }
+
+    .readonly {
+      background-color: var(--readonly-bg);
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="theme-toggle-icon" onclick="toggleTheme()">
+      <span id="themeIcon">🌙</span>
+    </div>
+
+    <h2>LP CALCULATOR</h2>
+
+    <div class="flexRow">
+      <div class="flexItem">
+        <label>Pool Ratio (A) %</label>
+        <input type="text" id="ratioA" value="100" oninput="updateFromRatio()" onblur="autoFormatField(event)">
+      </div>
+      <div class="flexItem">
+        <label>Pool Ratio (B) %</label>
+        <input type="text" id="ratioB" value="100" oninput="updateFromRatio()" onblur="autoFormatField(event)">
+      </div>
+      <div class="flexItem">
+        <label>Total Amount (Tokens)</label>
+        <input type="text" id="totalAmount" value="1,000.00" oninput="updateFromTotal()" onblur="autoFormatField(event)">
+      </div>
+    </div>
+
+    <div class="flexRow">
+      <div class="flexItem">
+        <label>Asset A</label>
+        <input type="text" id="assetA" value="500.00" oninput="updateFromRealA()" onblur="autoFormatField(event)">
+      </div>
+      <div class="flexItem">
+        <label>Price A</label>
+        <input type="text" id="priceA" value="1.00" oninput="updateValueDisplays()" onblur="autoFormatField(event)">
+      </div>
+      <div class="flexItem">
+        <label>Value A</label>
+        <input type="text" id="valueA" class="readonly" value="500.00" readonly>
+      </div>
+    </div>
+
+    <div class="flexRow">
+      <div class="flexItem">
+        <label>Asset B</label>
+        <input type="text" id="assetB" value="500.00" oninput="updateFromRealB()" onblur="autoFormatField(event)">
+      </div>
+      <div class="flexItem">
+        <label>Price B</label>
+        <input type="text" id="priceB" value="1.00" oninput="updateValueDisplays()" onblur="autoFormatField(event)">
+      </div>
+      <div class="flexItem">
+        <label>Value B</label>
+        <input type="text" id="valueB" class="readonly" value="500.00" readonly>
+      </div>
+    </div>
+
+    <div class="flexRow">
+      <div class="flexItem fullWidth">
+        <label>Total Value</label>
+        <input type="text" id="valueTotal" class="readonly" value="1,000.00" readonly>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    /*******************************************************
+     * Toggle Dark/Light Mode
+     *******************************************************/
+    function toggleTheme() {
+      document.body.classList.toggle('light-mode');
+      let iconEl = document.getElementById('themeIcon');
+      if (document.body.classList.contains('light-mode')) {
+        iconEl.textContent = '☀️'; // Sun
+      } else {
+        iconEl.textContent = '🌙'; // Moon
+      }
+    }
+
+    /*******************************************************
+     * Parsing, Formatting Utilities
+     *******************************************************/
+    function parseNumber(id) {
+      let raw = document.getElementById(id).value.replace(/,/g, '').trim();
+      return (raw === '' || isNaN(raw)) ? 0 : parseFloat(raw);
+    }
+
+    function formatNumber(value) {
+      return new Intl.NumberFormat("en-US", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+      }).format(value);
+    }
+
+    function formatAndSet(id, value) {
+      document.getElementById(id).value = formatNumber(value);
+    }
+
+    function autoFormatField(event) {
+      let rawValue = event.target.value.replace(/,/g, '').trim();
+      if (rawValue === '' || isNaN(rawValue)) return;
+      event.target.value = formatNumber(parseFloat(rawValue));
+      updateValueDisplays(); // Refresh computed values
+    }
+
+    /*******************************************************
+     * Recalculate Asset A/B from ratio & total
+     *******************************************************/
+    function updateFromTotal() {
+      let ratioA = parseNumber('ratioA');
+      let ratioB = parseNumber('ratioB');
+      let total  = parseNumber('totalAmount');
+
+      if (ratioA <= 0 || ratioB <= 0) {
+        formatAndSet('assetA', 0);
+        formatAndSet('assetB', 0);
+        updateValueDisplays();
+        return;
+      }
+
+      let sumRatio = ratioA + ratioB;
+      let realA = total * (ratioA / sumRatio);
+      let realB = total * (ratioB / sumRatio);
+
+      formatAndSet('assetA', realA);
+      formatAndSet('assetB', realB);
+      updateValueDisplays();
+    }
+
+    function updateFromRealA() {
+      let ratioA = parseNumber('ratioA');
+      let ratioB = parseNumber('ratioB');
+      let realA  = parseNumber('assetA');
+
+      if (ratioA <= 0) {
+        formatAndSet('assetB', 0);
+        formatAndSet('totalAmount', 0);
+        updateValueDisplays();
+        return;
+      }
+
+      let realB = realA * (ratioB / ratioA);
+      let total = realA + realB;
+
+      formatAndSet('assetB', realB);
+      formatAndSet('totalAmount', total);
+      updateValueDisplays();
+    }
+
+    function updateFromRealB() {
+      let ratioA = parseNumber('ratioA');
+      let ratioB = parseNumber('ratioB');
+      let realB  = parseNumber('assetB');
+
+      if (ratioB <= 0) {
+        formatAndSet('assetA', 0);
+        formatAndSet('totalAmount', 0);
+        updateValueDisplays();
+        return;
+      }
+
+      let realA = realB * (ratioA / ratioB);
+      let total = realA + realB;
+
+      formatAndSet('assetA', realA);
+      formatAndSet('totalAmount', total);
+      updateValueDisplays();
+    }
+
+    function updateFromRatio() {
+      updateFromTotal();
+    }
+
+    /*******************************************************
+     * Compute & Update the Value (A, B, total) in currency
+     *******************************************************/
+    function updateValueDisplays() {
+      let realA  = parseNumber('assetA');
+      let realB  = parseNumber('assetB');
+      let priceA = parseNumber('priceA');
+      let priceB = parseNumber('priceB');
+
+      let valA = realA * priceA;
+      let valB = realB * priceB;
+      let valTotal = valA + valB;
+
+      formatAndSet('valueA', valA);
+      formatAndSet('valueB', valB);
+      formatAndSet('valueTotal', valTotal);
+    }
+
+    // Initialize computed values on page load
+    window.onload = updateValueDisplays;
+  </script>
+</body>
+</html>
