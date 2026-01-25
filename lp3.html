@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>LP Calculator v1.1.2</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<style>
+:root{
+  --bg:#000;--fg:#fff;--panel:#111;--input:#222;
+  --border:#444;--muted:#888;--accent:#4caf50;--warn:#ffb300;--bad:#ff5252;
+}
+.light{
+  --bg:#fff;--fg:#000;--panel:#eee;--input:#fff;
+  --border:#ccc;--muted:#666;--accent:#2e7d32;--warn:#b26a00;--bad:#c62828;
+}
+
+body{background:var(--bg);color:var(--fg);font-family:Arial,sans-serif;margin:0;padding:16px;}
+.container{max-width:860px;margin:auto;background:var(--panel);border-radius:12px;padding:20px;box-shadow:0 0 18px rgba(0,0,0,.6);}
+.header{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:10px;flex-wrap:wrap;}
+h2{margin:0;}
+.header-actions{display:flex;gap:10px;flex-wrap:wrap;}
+button{background:var(--input);color:var(--fg);border:1px solid var(--border);border-radius:8px;padding:8px 12px;cursor:pointer;font-size:14px;}
+button.reset{color:var(--warn);}
+
+.section{margin-top:22px;font-size:15px;color:var(--accent);display:flex;flex-direction:column;gap:6px;}
+.helper{font-size:12px;color:var(--muted);line-height:1.35;}
+
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:10px;}
+.field{display:flex;flex-direction:column;}
+label{font-size:13px;color:var(--muted);margin-bottom:4px;}
+
+input{
+  height:46px;padding:8px;font-size:17px;border-radius:8px;border:1px solid var(--border);
+  background:var(--input);color:var(--fg);text-align:center;
+}
+.readonly{background:#333;opacity:.85;}
+.bad{border-color:var(--bad)!important;box-shadow:0 0 0 2px rgba(255,82,82,.15);}
+
+.result-row{margin-top:18px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;}
+.result-text{font-size:17px;font-weight:bold;}
+.copied{font-size:13px;color:var(--accent);}
+
+.notice{margin-top:10px;font-size:13px;color:var(--warn);line-height:1.35;}
+.note{margin-top:10px;font-size:12px;color:var(--muted);line-height:1.35;}
+
+@media(max-width:760px){.grid{grid-template-columns:1fr;}}
+</style>
+</head>
+
+<body>
+<div class="container">
+  <div class="header">
+    <h2>LP Calculator <span style="font-size:12px;color:var(--muted)">v1.1.2</span></h2>
+    <div class="header-actions">
+      <button class="reset" onclick="resetAll()">Reset</button>
+      <button onclick="toggleTheme()">Theme</button>
+    </div>
+  </div>
+
+  <div class="section">
+    <div>Pool Settings</div>
+    <div class="helper">
+      Pool ratio defines the <b>target LP value split</b> between Alt-Stable and USDC (not the swap output rate).
+      Example 100/100 = 50%/50%.
+    </div>
+  </div>
+  <div class="grid">
+    <div class="field"><label>Pool Ratio Alt-Stable</label><input id="ra"></div>
+    <div class="field"><label>Pool Ratio USDC</label><input id="rb"></div>
+    <div class="field"><label>Target LP Split</label><input id="split" class="readonly" readonly></div>
+  </div>
+
+  <div class="section">
+    <div>Wallet & Prices</div>
+    <div class="helper">Comma-safe numeric inputs. Swap instruction is the <b>DEX input amount</b> (pre-fee/slippage).</div>
+  </div>
+  <div class="grid">
+    <div class="field"><label>Wallet Alt-Stable</label><input id="wa"></div>
+    <div class="field"><label>Wallet USDC</label><input id="wb"></div>
+    <div class="field"><label>Total Wallet Value</label><input id="wv" class="readonly" readonly></div>
+
+    <div class="field"><label>Price Alt-Stable</label><input id="pa"></div>
+    <div class="field"><label>Price USDC</label><input id="pb"></div>
+    <div class="field"><label>—</label><input class="readonly" readonly></div>
+  </div>
+
+  <div class="section">
+    <div>Ideal LP Target (Computed)</div>
+    <div class="helper">Computed from wallet value + pool ratio.</div>
+  </div>
+  <div class="grid">
+    <div class="field"><label>Ideal Alt-Stable</label><input id="ia" class="readonly" readonly></div>
+    <div class="field"><label>Ideal USDC</label><input id="ib" class="readonly" readonly></div>
+    <div class="field"><label>Ideal Total Value</label><input id="it" class="readonly" readonly></div>
+  </div>
+
+  <div class="result-row">
+    <div class="result-text" id="swap"></div>
+    <button id="copyBtn" onclick="copySwap()" style="display:none">Copy</button>
+    <div class="copied" id="copied" style="display:none"></div>
+  </div>
+
+  <div class="notice" id="warn" style="display:none"></div>
+
+  <div class="note">
+    Note: amounts shown are what to swap (input). Actual output depends on DEX fees/slippage and may be slightly lower.
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+
+/* -------------------- Constants -------------------- */
+const COPIED_NOTIFICATION_MS = 1200;
+
+// Threshold: treat as "balanced" if difference is under max(1 cent, 0.0001% of wallet value)
+const BALANCE_THRESHOLD_USD_MIN = 0.01;
+const BALANCE_THRESHOLD_REL = 1e-6; // 0.0001%
+
+// Non-blocking warnings
+const DEPEG_WARN_MIN = 0.90;  // pa/pb < 0.90
+const DEPEG_WARN_MAX = 1.11;  // pa/pb > 1.11
+const RATIO_SKEW_WARN = 10;   // max(ra/rb, rb/ra) > 10
+
+/* -------------------- Number handling -------------------- */
+function parseNum(v){
+  if(v===null||v===undefined) return 0;
+  const s = String(v).replace(/,/g,'').trim();
+  if(s === '') return 0;
+  const n = Number(s);
+  return Number.isFinite(n) ? n : 0;
+}
+const num = id => parseNum($(id).value);
+
+function formatWithCommas(n, dec){
+  if(!Number.isFinite(n)) return '';
+  return n.toLocaleString(undefined, { minimumFractionDigits: dec, maximumFractionDigits: dec });
+}
+
+const fmtAmt    = n => formatWithCommas(n, 4); // swap amounts + ideals
+const fmtVal    = n => formatWithCommas(n, 2); // wallet/ideal totals
+const fmtRatio  = n => formatWithCommas(n, 4);
+const fmtWallet = n => formatWithCommas(n, 6);
+const fmtPrice  = n => formatWithCommas(n, 4);
+
+function normalize(id, fmtFn){
+  const el = $(id);
+  if(el.value.trim() === '') return;
+  const v = parseNum(el.value);
+  el.value = fmtFn(v);
+}
+
+/* -------------------- UI helpers -------------------- */
+function showWarn(msg){
+  const w = $('warn');
+  if(!msg){
+    w.style.display='none';
+    w.textContent='';
+    return;
+  }
+  w.style.display='block';
+  w.textContent = msg;
+}
+
+function setBad(id, isBad){
+  const el = $(id);
+  if(isBad) el.classList.add('bad');
+  else el.classList.remove('bad');
+}
+
+function clearFieldState(){
+  ['ra','rb','wa','wb','pa','pb'].forEach(id=>setBad(id,false));
+  showWarn('');
+  $('copied').style.display='none';
+  $('copied').textContent='';
+}
+
+/* -------------------- Core logic -------------------- */
+let lastSwapText = '';
+
+function recalc(){
+  clearFieldState();
+
+  const ra = num('ra'), rb = num('rb');
+  const wa = num('wa'), wb = num('wb');
+  const pa = num('pa'), pb = num('pb');
+
+  // Validate required positives
+  if(ra <= 0){ setBad('ra', true); showWarn('Error: Pool ratio Alt-Stable must be > 0.'); return; }
+  if(rb <= 0){ setBad('rb', true); showWarn('Error: Pool ratio USDC must be > 0.'); return; }
+  if(pa <= 0){ setBad('pa', true); showWarn('Error: Price Alt-Stable must be > 0.'); return; }
+  if(pb <= 0){ setBad('pb', true); showWarn('Error: Price USDC must be > 0.'); return; }
+
+  // Derived split
+  const shareA = ra / (ra + rb);
+  const shareB = 1 - shareA;
+  $('split').value = `Alt-Stable ${(shareA*100).toFixed(2)}% / USDC ${(shareB*100).toFixed(2)}%`;
+
+  // Non-blocking warnings (accumulate)
+  const warnings = [];
+
+  const priceRatio = pa / pb;
+  if(priceRatio < DEPEG_WARN_MIN || priceRatio > DEPEG_WARN_MAX){
+    warnings.push(`⚠ Price ratio (Alt-Stable/USDC) = ${priceRatio.toFixed(4)} suggests possible depeg. Verify prices.`);
+  }
+
+  const ratioSkew = Math.max(ra/rb, rb/ra);
+  if(ratioSkew > RATIO_SKEW_WARN){
+    warnings.push(`⚠ Pool ratio is heavily skewed (${ratioSkew.toFixed(1)}:1). Confirm this is intended.`);
+  }
+
+  // Wallet value + ideals
+  const total = wa*pa + wb*pb;
+  $('wv').value = (total > 0) ? fmtVal(total) : '';
+
+  if(total <= 0){
+    $('ia').value = '';
+    $('ib').value = '';
+    $('it').value = '';
+    $('swap').textContent = '';
+    $('copyBtn').style.display = 'none';
+    showWarn(warnings.join(' '));
+    return;
+  }
+
+  const idealA = (total * shareA) / pa;
+  const idealB = (total * shareB) / pb;
+
+  $('ia').value = fmtAmt(idealA);
+  $('ib').value = fmtAmt(idealB);
+  $('it').value = fmtVal(total);
+
+  // Balance threshold: max(1 cent, relative to wallet size)
+  const thresholdUsd = Math.max(BALANCE_THRESHOLD_USD_MIN, total * BALANCE_THRESHOLD_REL);
+
+  // diff in Alt-Stable units
+  const diffA = wa - idealA;
+  const diffUsd = Math.abs(diffA) * pa;
+
+  if(diffUsd < thresholdUsd){
+    $('swap').textContent = '✓ Ready — wallet already matches target LP allocation.';
+    $('copyBtn').style.display = 'none';
+    lastSwapText = '';
+    showWarn(warnings.join(' '));
+    return;
+  }
+
+  // Determine swap direction with balance validation
+  if(diffA > 0){
+    // Excess Alt-Stable → swap Alt-Stable to USDC
+    const altToSwap = diffA;
+
+    if(altToSwap > wa + 1e-12){
+      setBad('wa', true);
+      $('swap').textContent = 'Insufficient Alt-Stable balance';
+      $('copyBtn').style.display = 'none';
+      showWarn(`⚠ Need to swap ${fmtAmt(altToSwap)} Alt-Stable, but only ${fmtWallet(wa)} available. ${warnings.join(' ')}`.trim());
+      return;
+    }
+
+    lastSwapText = `Swap ${fmtAmt(altToSwap)} Alt-Stable → USDC`;
+  } else {
+    // Deficit Alt-Stable → swap USDC to acquire Alt-Stable
+    const altNeeded = -diffA;
+    const usdcToSwap = (altNeeded * pa) / pb;
+
+    if(usdcToSwap > wb + 1e-12){
+      setBad('wb', true);
+      $('swap').textContent = 'Insufficient USDC balance';
+      $('copyBtn').style.display = 'none';
+      showWarn(`⚠ Need to swap ${fmtAmt(usdcToSwap)} USDC, but only ${fmtWallet(wb)} available. ${warnings.join(' ')}`.trim());
+      return;
+    }
+
+    lastSwapText = `Swap ${fmtAmt(usdcToSwap)} USDC → Alt-Stable`;
+  }
+
+  $('swap').textContent = `✓ Ready — ${lastSwapText}`;
+  $('copyBtn').style.display = 'inline-block';
+  showWarn(warnings.join(' '));
+}
+
+function copySwap(){
+  if(!lastSwapText) return;
+
+  const payload = lastSwapText;
+  navigator.clipboard.writeText(payload).then(()=>{
+    const c = $('copied');
+    c.textContent = `Copied: ${payload}`;
+    c.style.display='inline';
+    setTimeout(()=>{ c.style.display='none'; }, COPIED_NOTIFICATION_MS);
+  }).catch(()=>{
+    // Fallback for older browsers
+    const ta = document.createElement('textarea');
+    ta.value = payload;
+    document.body.appendChild(ta);
+    ta.select();
+    try{ document.execCommand('copy'); }catch(e){}
+    document.body.removeChild(ta);
+
+    const c = $('copied');
+    c.textContent = `Copied: ${payload}`;
+    c.style.display='inline';
+    setTimeout(()=>{ c.style.display='none'; }, COPIED_NOTIFICATION_MS);
+  });
+}
+
+/* -------------------- Wiring -------------------- */
+['ra','rb','wa','wb','pa','pb'].forEach(id=>{
+  $(id).addEventListener('input', recalc);
+});
+
+$('ra').addEventListener('blur', ()=>normalize('ra', fmtRatio));
+$('rb').addEventListener('blur', ()=>normalize('rb', fmtRatio));
+$('wa').addEventListener('blur', ()=>normalize('wa', fmtWallet));
+$('wb').addEventListener('blur', ()=>normalize('wb', fmtWallet));
+$('pa').addEventListener('blur', ()=>normalize('pa', fmtPrice));
+$('pb').addEventListener('blur', ()=>normalize('pb', fmtPrice));
+
+function resetAll(){
+  $('ra').value = fmtRatio(100);
+  $('rb').value = fmtRatio(100);
+  $('wa').value = fmtWallet(0);
+  $('wb').value = fmtWallet(0);
+  $('pa').value = fmtPrice(1);
+  $('pb').value = fmtPrice(1);
+
+  $('split').value = '';
+  $('wv').value = '';
+  $('ia').value = '';
+  $('ib').value = '';
+  $('it').value = '';
+  $('swap').textContent = '';
+  $('copyBtn').style.display = 'none';
+  lastSwapText = '';
+
+  clearFieldState();
+  recalc();
+}
+
+function toggleTheme(){ document.body.classList.toggle('light'); }
+
+/* -------------------- Init -------------------- */
+resetAll();
+</script>
+</body>
+</html>
